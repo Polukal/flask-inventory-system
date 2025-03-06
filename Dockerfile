@@ -15,4 +15,4 @@ ENV PYTHONUNBUFFERED=1
 ENV FLASK_APP=run.py
 
 # Run the application
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "run:app"]
+CMD ["python", "run.py"]
