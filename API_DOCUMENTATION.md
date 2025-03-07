@@ -7,7 +7,7 @@ This RESTful API provides comprehensive warehouse and inventory management capab
 ## Base URL
 
 ```
-http://localhost:5000
+http://localhost:5001
 ```
 
 ## Authentication
@@ -187,6 +187,40 @@ Retrieve a paginated list of products in a specific warehouse.
   }
 }
 ```
+
+### Get Product Stock Level in a Specific Warehouse
+
+**GET** `/warehouses/{warehouse_id}/products/{product_id}/stock`
+
+Retrieve the current stock level of a specific product in a specific warehouse. This endpoint is useful for checking inventory levels across multiple warehouses for the same product.
+
+**Parameters**
+
+| Parameter    | Description                               | Required |
+|--------------|-------------------------------------------|----------|
+| warehouse_id | ID of the warehouse to check stock in     | Yes      |
+| product_id   | ID of the product to check stock for      | Yes      |
+
+**Example Request**
+```
+GET /warehouses/2/products/1/stock
+```
+
+**Example Response**
+```json
+{
+  "product_id": 1,
+  "product_name": "LED Monitor",
+  "warehouse_id": 2,
+  "warehouse_name": "South Portland Warehouse",
+  "stock_level": 5
+}
+```
+
+**Notes**
+- This endpoint tracks inventory at the warehouse level, allowing products to exist in multiple warehouses simultaneously.
+- If a product has never been stocked in the specified warehouse, the stock level will be 0.
+- The stock level is calculated based on all movements (additions, removals, transfers) affecting the product in this specific warehouse.
 
 ### Transfer Products Between Warehouses
 
@@ -490,17 +524,22 @@ Retrieve a list of products with stock levels below their minimum threshold.
    }
    ```
 
-5. Check stock level:
+5. Check total stock level across all warehouses:
    ```
    GET /products/1/stock
    ```
 
-6. View product movement history:
+6. Check stock level in a specific warehouse:
+   ```
+   GET /warehouses/2/products/1/stock
+   ```
+
+7. View product movement history:
    ```
    GET /products/1/movements
    ```
 
-7. Add more products and check for alerts:
+8. Add more products and check for alerts:
    ```
    POST /products/
    {
