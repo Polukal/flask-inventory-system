@@ -23,6 +23,7 @@ def create_app():
     from app.models.warehouse import Warehouse
     from app.models.product import Product
     from app.models.stock_movement import StockMovement
+    from app.models.inventory import Inventory
     
     # Register blueprints
     from app.routes.warehouse_routes import warehouse_bp

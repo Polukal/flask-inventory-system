@@ -3,6 +3,7 @@ from app import db
 from app.models.warehouse import Warehouse
 from app.models.product import Product
 from app.models.stock_movement import StockMovement
+from app.models.inventory import Inventory
 from app.utils.cache import (
     get_stock_level, set_stock_level, 
     cache_warehouse, get_cached_warehouse,
@@ -123,11 +124,16 @@ def transfer_products():
     # Check if destination warehouse exists
     Warehouse.query.get_or_404(destination_warehouse_id)
     
-    # Check current stock level
-    current_stock = get_stock_level(product_id)
+    # Check current stock level in source warehouse
+    source_inventory = Inventory.query.filter_by(
+        product_id=product_id,
+        warehouse_id=source_warehouse_id
+    ).first()
     
-    if current_stock is None:
-        # Calculate from database if not in cache
+    if source_inventory and source_inventory.quantity >= quantity:
+        current_stock = source_inventory.quantity
+    else:
+        # Fallback to calculating from movements if inventory record doesn't exist
         additions = db.session.query(db.func.sum(StockMovement.quantity)).filter(
             StockMovement.product_id == product_id,
             StockMovement.destination_warehouse_id == source_warehouse_id
@@ -148,6 +154,28 @@ def transfer_products():
             'requested': quantity
         }), 400
     
+    # Update source inventory
+    if source_inventory:
+        source_inventory.quantity -= quantity
+        if source_inventory.quantity <= 0:
+            db.session.delete(source_inventory)
+    
+    # Update destination inventory
+    dest_inventory = Inventory.query.filter_by(
+        product_id=product_id,
+        warehouse_id=destination_warehouse_id
+    ).first()
+    
+    if dest_inventory:
+        dest_inventory.quantity += quantity
+    else:
+        dest_inventory = Inventory(
+            product_id=product_id,
+            warehouse_id=destination_warehouse_id,
+            quantity=quantity
+        )
+        db.session.add(dest_inventory)
+    
     # Create transfer movement
     movement = StockMovement(
         product_id=product_id,
@@ -157,15 +185,20 @@ def transfer_products():
         movement_type='transfer'
     )
     
-    # Update product warehouse
-    product.warehouse_id = destination_warehouse_id
+    # Update product warehouse if all stock is transferred
+    if source_inventory is None or source_inventory.quantity <= 0:
+        product.warehouse_id = destination_warehouse_id
     
     db.session.add(movement)
     db.session.commit()
     
     # Update cache
-    # Reduce stock at source
-    set_stock_level(product_id, current_stock - quantity, product.min_stock_level)
+    # Get total stock across all warehouses
+    total_stock = db.session.query(db.func.sum(Inventory.quantity)).filter(
+        Inventory.product_id == product_id
+    ).scalar() or 0
+    
+    set_stock_level(product_id, total_stock, product.min_stock_level)
     
     return jsonify({
         'message': 'Product transferred successfully',
@@ -177,4 +210,46 @@ def transfer_products():
             'quantity': movement.quantity,
             'timestamp': movement.timestamp.isoformat()
         }
+    })
+
+@warehouse_bp.route('/<int:warehouse_id>/products/<int:product_id>/stock', methods=['GET'])
+def get_warehouse_product_stock(warehouse_id, product_id):
+    # Ensure warehouse and product exist
+    warehouse = Warehouse.query.get_or_404(warehouse_id)
+    product = Product.query.get_or_404(product_id)
+    
+    # Try to get from inventory model if it exists
+    inventory = Inventory.query.filter_by(
+        warehouse_id=warehouse_id,
+        product_id=product_id
+    ).first()
+    
+    if inventory:
+        return jsonify({
+            'product_id': product_id,
+            'product_name': product.name,
+            'warehouse_id': warehouse_id,
+            'warehouse_name': warehouse.name,
+            'stock_level': inventory.quantity
+        })
+    
+    # If no inventory record exists, calculate from movements
+    additions = db.session.query(db.func.sum(StockMovement.quantity)).filter(
+        StockMovement.product_id == product_id,
+        StockMovement.destination_warehouse_id == warehouse_id
+    ).scalar() or 0
+    
+    removals = db.session.query(db.func.sum(StockMovement.quantity)).filter(
+        StockMovement.product_id == product_id,
+        StockMovement.source_warehouse_id == warehouse_id
+    ).scalar() or 0
+    
+    stock_level = additions - removals
+    
+    return jsonify({
+        'product_id': product_id,
+        'product_name': product.name,
+        'warehouse_id': warehouse_id,
+        'warehouse_name': warehouse.name,
+        'stock_level': stock_level
     })

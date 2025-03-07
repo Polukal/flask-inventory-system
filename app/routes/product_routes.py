@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 from app import db
 from app.models.product import Product
 from app.models.stock_movement import StockMovement
+from app.models.inventory import Inventory
 from app.utils.cache import (
     get_stock_level, set_stock_level, 
     cache_product, get_cached_product
@@ -33,6 +34,23 @@ def add_product():
             movement_type='addition'
         )
         db.session.add(movement)
+        
+        # Create or update inventory record
+        inventory = Inventory.query.filter_by(
+            product_id=product.id,
+            warehouse_id=product.warehouse_id
+        ).first()
+        
+        if inventory:
+            inventory.quantity += data['stock']
+        else:
+            inventory = Inventory(
+                product_id=product.id,
+                warehouse_id=product.warehouse_id,
+                quantity=data['stock']
+            )
+            db.session.add(inventory)
+        
         db.session.commit()
         
         # Cache the stock level
